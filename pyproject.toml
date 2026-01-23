@@ -1,0 +1,26 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "llm-agents-sandbox-service"
+version = "0.1.0"
+description = "Secure environment execution service."
+authors = ["Daniel López Gala <daniel.lopezgala@ar.admin.ch>"]
+license = "MIT"
+packages = [{include = "sandbox_runtime", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "0.115.5"
+uvicorn = "0.29.0"
+docker = "^7.0"
+httpx = "^0.27.0"
+pydantic = "^2.0"
+rich = "^13.7.0"
+ruff = "^0.14.11"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.23.0"
+pytest-cov = "^7.0.0"

@@ -1,0 +1,37 @@
+# Standalone docker-compose for sandbox-runtime
+# Provides secure container environments for tool execution
+
+services:
+  # Build the sandbox container image
+  sandbox-image:
+    image: sandbox:local
+    build:
+      context: ..
+      dockerfile: llm-agents-sandbox-runtime/containers/Dockerfile
+
+  # The sandbox service API
+  sandbox-service:
+    build:
+      context: ..
+      dockerfile: llm-agents-sandbox-runtime/Dockerfile
+    ports:
+      - "${SANDBOX_PORT:-8000}:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./logs:/app/logs
+    environment:
+      - AGENT_SANDBOX_IMAGE=sandbox:local
+      - AGENT_NETWORK_NAME=${AGENT_NETWORK_NAME:-sandbox_net}
+      - AGENT_NETWORK_MODE=${AGENT_NETWORK_MODE:-}
+    depends_on:
+      sandbox-image:
+        condition: service_started
+    networks:
+      - sandbox_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  sandbox_net:
+    driver: bridge
+    name: sandbox_net
