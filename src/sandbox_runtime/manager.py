@@ -137,27 +137,54 @@ class SandboxManager:
         else:
             kwargs["network"] = AGENT_NETWORK_NAME
 
-        try:
-            container = await asyncio.to_thread(self.docker.containers.run, **kwargs)
-
-            # Wait for readiness
-            await asyncio.to_thread(container.reload)
-            ip = self._get_ip(container)
-
-            await self._wait_for_health(container, ip, srv_port, token)
-
-            self._register_sandbox(session_id, container, ip, srv_port, token)
-            return container
-
-        except Exception as e:
-            logger.error(f"Failed to launch sandbox {session_id}: {e}")
-            # Try cleanup
+        for attempt in range(3):
             try:
-                c = self.docker.containers.get(name)
-                await self._remove_container(c)
-            except:
-                pass
-            raise RuntimeError(f"Sandbox creation failed: {e}")
+                container = await asyncio.to_thread(self.docker.containers.run, **kwargs)
+
+                # Wait for readiness
+                await asyncio.to_thread(container.reload)
+                ip = self._get_ip(container)
+
+                await self._wait_for_health(container, ip, srv_port, token)
+
+                self._register_sandbox(session_id, container, ip, srv_port, token)
+                return container
+
+            except APIError as e:
+                # 409 Conflict: Container removal in progress or name collision
+                if e.response.status_code == 409 and attempt < 2:
+                    logger.warning(f"Sandbox creation conflict (attempt {attempt+1}/3): {e}")
+                    # Try to cleanup again just in case
+                    try:
+                        c = await asyncio.to_thread(self.docker.containers.get, name)
+                        await self._remove_container(c)
+                        
+                        # Explicitly wait for the name to be free
+                        for _ in range(10):
+                            try:
+                                await asyncio.to_thread(self.docker.containers.get, name)
+                                await asyncio.sleep(0.5)
+                            except NotFound:
+                                break
+                    except (NotFound, APIError):
+                        pass
+                    
+                    await asyncio.sleep(1.0)
+                    continue
+                
+                # If not 409 or retries exhausted, re-raise
+                logger.error(f"Failed to launch sandbox {session_id}: {e}")
+                raise RuntimeError(f"Sandbox creation failed: {e}")
+
+            except Exception as e:
+                logger.error(f"Failed to launch sandbox {session_id}: {e}")
+                # Try cleanup
+                try:
+                    c = self.docker.containers.get(name)
+                    await self._remove_container(c)
+                except:
+                    pass
+                raise RuntimeError(f"Sandbox creation failed: {e}")
 
     async def stop_remove_sandbox(self, session_id: str, cancel_task: bool = True):
         """Terminates session sandbox."""
@@ -211,6 +238,17 @@ class SandboxManager:
     def _register_sandbox(
         self, sid: str, container: Container, ip: str, port: int, token: str
     ):
+        if sid in self._sandboxes:
+            entry = self._sandboxes[sid]
+            task = entry.get("health_task")
+            if task and not task.done():
+                # Already monitored, just update metadata if needed
+                entry["container"] = container
+                entry["ip_address"] = ip
+                entry["tool_server_port"] = port
+                entry["tool_server_token"] = token
+                return
+
         self._sandboxes[sid] = {
             "container": container,
             "ip_address": ip,
@@ -301,6 +339,12 @@ class SandboxManager:
             if container.status == "running":
                 await asyncio.to_thread(container.stop, timeout=1)
             await asyncio.to_thread(container.remove, force=True)
+        except APIError as e:
+            # 409: removal in progress; 404: already gone
+            if e.response.status_code in (409, 404):
+                pass
+            else:
+                logger.warning(f"Error removing container: {e}")
         except Exception as e:
             logger.warning(f"Error removing container: {e}")
 
