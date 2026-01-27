@@ -205,7 +205,9 @@ class SandboxManager:
             logger.error(f"Error removing sandbox {session_id}: {e}")
 
     async def copy_file(self, session_id: str, src: str, dest: str):
-        """Injects file into container."""
+        """Injects file into container using disk-based buffering for large files."""
+        import tempfile
+
         c = await self._find_existing(session_id)
         if not c:
             raise RuntimeError("Sandbox not active")
@@ -215,20 +217,17 @@ class SandboxManager:
         if dest_dir:
             await asyncio.to_thread(c.exec_run, f"mkdir -p {dest_dir}")
 
-        # Tar
+        # Use disk-based temp file to avoid memory issues with large files
         try:
-            stream = io.BytesIO()
-            with tarfile.open(fileobj=stream, mode="w") as tar:
-                with open(src, "rb") as f:
-                    data = f.read()
-                info = tarfile.TarInfo(name=dest.split("/")[-1])
-                info.size = len(data)
-                info.mtime = time.time()
-                tar.addfile(info, io.BytesIO(data))
-            stream.seek(0)
+            with tempfile.NamedTemporaryFile(suffix=".tar", delete=True) as tmp:
+                with tarfile.open(fileobj=tmp, mode="w") as tar:
+                    # Use tar.add() to stream from disk instead of reading into memory
+                    tar.add(src, arcname=dest.split("/")[-1])
+                tmp.flush()
+                tmp.seek(0)
 
-            await asyncio.to_thread(c.put_archive, dest_dir or "/", stream)
-            logger.info(f"Injected {src} -> {dest} in {session_id}")
+                await asyncio.to_thread(c.put_archive, dest_dir or "/", tmp)
+                logger.info(f"Injected {src} -> {dest} in {session_id}")
         except Exception as e:
             logger.error(f"File copy failed: {e}")
             raise
