@@ -18,7 +18,7 @@ COPY llm-agents-sandbox-runtime /app/llm-agents-sandbox-runtime
 # Install Dependencies
 WORKDIR /app/llm-agents-sandbox-runtime
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi
+    && poetry install --no-interaction --no-ansi --only main
 
 # Set PYTHONPATH to include src
 ENV PYTHONPATH=/app/llm-agents-sandbox-runtime/src

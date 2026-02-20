@@ -116,6 +116,7 @@ class SandboxManager:
             "AGENT_SANDBOX_MODE": "true",
             "REDIS_HOST": os.getenv("REDIS_HOST", "redis"),
             "REDIS_PORT": os.getenv("REDIS_PORT", "6379"),
+            "PLATFORM_SESSION_ID": session_id,
         }
 
         labels = {"platform-session-id": session_id}
