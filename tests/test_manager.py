@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch, mock_open
 from docker.errors import NotFound, DockerException
 from sandbox_runtime.manager import SandboxManager
@@ -35,7 +34,6 @@ async def test_get_or_create_container_new(sandbox_manager, mock_container):
 @pytest.mark.asyncio
 async def test_find_existing_healthy(sandbox_manager, mock_container):
     """Test finding an existing healthy container."""
-    # Setup mocks
     mock_container.status = "running"
     sandbox_manager.docker.containers.get.return_value = mock_container
     sandbox_manager._check_health = AsyncMock(return_value=True)
@@ -75,7 +73,7 @@ async def test_find_existing_unhealthy(sandbox_manager, mock_container):
 @pytest.mark.asyncio
 async def test_find_existing_missing_config(sandbox_manager, mock_container):
     """Test container with missing env vars."""
-    mock_container.attrs["Config"]["Env"] = []  # Missing envs
+    mock_container.attrs["Config"]["Env"] = []
     sandbox_manager.docker.containers.get.return_value = mock_container
     sandbox_manager._remove_container = AsyncMock()
 
@@ -88,7 +86,6 @@ async def test_find_existing_missing_config(sandbox_manager, mock_container):
 @pytest.mark.asyncio
 async def test_create_new_success(sandbox_manager, mock_container):
     """Test successful creation of a new sandbox."""
-    # Setup
     sandbox_manager.docker.containers.get.side_effect = NotFound("Not found")
     sandbox_manager.docker.containers.run.return_value = mock_container
     sandbox_manager._check_health = AsyncMock(return_value=True)
@@ -141,7 +138,6 @@ async def test_check_health(sandbox_manager):
         is_healthy = await sandbox_manager._check_health("1.2.3.4", 8080, "token")
         assert is_healthy is True
 
-        # Test failure
         mock_get.side_effect = Exception("error")
         is_healthy = await sandbox_manager._check_health("1.2.3.4", 8080, "token")
         assert is_healthy is False

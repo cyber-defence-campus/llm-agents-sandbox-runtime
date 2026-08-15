@@ -12,7 +12,6 @@ echo "✅ Shared container ready for multi-agent use"
 
 cd /workspace
 
-# Debug logging for environment variables
 echo "DEBUG: TOOL_SERVER_PORT=${TOOL_SERVER_PORT:-<unset>}"
 echo "DEBUG: TOOL_SERVER_TOKEN length=${#TOOL_SERVER_TOKEN}"
 

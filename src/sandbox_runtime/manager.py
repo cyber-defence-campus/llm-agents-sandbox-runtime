@@ -3,7 +3,6 @@ import logging
 import secrets
 import socket
 import time
-import io
 import os
 import tarfile
 from typing import Any, Dict, Optional, Tuple
@@ -63,12 +62,10 @@ class SandboxManager:
         try:
             container = await asyncio.to_thread(self.docker.containers.get, name)
 
-            # If stopped, restart
             if container.status != "running":
                 logger.info(f"Restarting container {name}")
                 await asyncio.to_thread(container.start)
 
-            # Validate Health
             await asyncio.to_thread(container.reload)
             info = self._extract_container_info(container)
             if not info:
@@ -95,14 +92,12 @@ class SandboxManager:
         name = f"platform-{session_id}"
         logger.info(f"Creating new sandbox: {name}")
 
-        # Cleanup any collision
         try:
             old = await asyncio.to_thread(self.docker.containers.get, name)
             await self._remove_container(old)
         except NotFound:
             pass
 
-        # Config
         caido_port = self._find_free_port()
         srv_port = self._find_free_port()
         token = secrets.token_urlsafe(32)
@@ -142,7 +137,6 @@ class SandboxManager:
             try:
                 container = await asyncio.to_thread(self.docker.containers.run, **kwargs)
 
-                # Wait for readiness
                 await asyncio.to_thread(container.reload)
                 ip = self._get_ip(container)
 
@@ -155,12 +149,10 @@ class SandboxManager:
                 # 409 Conflict: Container removal in progress or name collision
                 if e.response.status_code == 409 and attempt < 2:
                     logger.warning(f"Sandbox creation conflict (attempt {attempt+1}/3): {e}")
-                    # Try to cleanup again just in case
                     try:
                         c = await asyncio.to_thread(self.docker.containers.get, name)
                         await self._remove_container(c)
-                        
-                        # Explicitly wait for the name to be free
+
                         for _ in range(10):
                             try:
                                 await asyncio.to_thread(self.docker.containers.get, name)
@@ -172,14 +164,12 @@ class SandboxManager:
                     
                     await asyncio.sleep(1.0)
                     continue
-                
-                # If not 409 or retries exhausted, re-raise
+
                 logger.error(f"Failed to launch sandbox {session_id}: {e}")
                 raise RuntimeError(f"Sandbox creation failed: {e}")
 
             except Exception as e:
                 logger.error(f"Failed to launch sandbox {session_id}: {e}")
-                # Try cleanup
                 try:
                     c = self.docker.containers.get(name)
                     await self._remove_container(c)
@@ -188,7 +178,6 @@ class SandboxManager:
                 raise RuntimeError(f"Sandbox creation failed: {e}")
 
     async def stop_remove_sandbox(self, session_id: str, cancel_task: bool = True):
-        """Terminates session sandbox."""
         entry = self.sandboxes.pop(session_id, None)
         if entry and cancel_task:
             task = entry.get("health_task")
@@ -213,16 +202,13 @@ class SandboxManager:
         if not c:
             raise RuntimeError("Sandbox not active")
 
-        # Mkdir
         dest_dir = "/".join(dest.split("/")[:-1])
         if dest_dir:
             await asyncio.to_thread(c.exec_run, f"mkdir -p {dest_dir}")
 
-        # Use disk-based temp file to avoid memory issues with large files
         try:
             with tempfile.NamedTemporaryFile(suffix=".tar", delete=True) as tmp:
                 with tarfile.open(fileobj=tmp, mode="w") as tar:
-                    # Use tar.add() to stream from disk instead of reading into memory
                     tar.add(src, arcname=dest.split("/")[-1])
                 tmp.flush()
                 tmp.seek(0)
@@ -233,8 +219,6 @@ class SandboxManager:
             logger.error(f"File copy failed: {e}")
             raise
 
-    # --- Helpers ---
-
     def _register_sandbox(
         self, sid: str, container: Container, ip: str, port: int, token: str
     ):
@@ -242,7 +226,6 @@ class SandboxManager:
             entry = self._sandboxes[sid]
             task = entry.get("health_task")
             if task and not task.done():
-                # Already monitored, just update metadata if needed
                 entry["container"] = container
                 entry["ip_address"] = ip
                 entry["tool_server_port"] = port
@@ -294,7 +277,6 @@ class SandboxManager:
                 return
             await asyncio.sleep(1)
 
-            # Refresh IP logic if needed
             try:
                 await asyncio.to_thread(container.reload)
                 ip = self._get_ip(container)
@@ -362,7 +344,6 @@ class SandboxManager:
     def sandboxes(self):
         return self._sandboxes
 
-    # Alias for method name compatibility if needed
     stop_and_remove_sandbox = stop_remove_sandbox
     copy_file_to_container = copy_file
 

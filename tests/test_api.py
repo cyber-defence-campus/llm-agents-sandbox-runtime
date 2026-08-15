@@ -1,7 +1,6 @@
 import pytest
 import httpx
 from unittest.mock import MagicMock, AsyncMock, patch
-from fastapi import status
 
 
 def test_list_sandboxes(mock_api_client, mock_global_manager, mock_container):
@@ -45,7 +44,7 @@ def test_create_sandbox_success(mock_api_client, mock_global_manager, mock_conta
 def test_create_sandbox_inconsistency_error(mock_api_client, mock_global_manager):
     """Test error when state is inconsistent after creation."""
     mock_global_manager.get_or_create_container = AsyncMock()
-    mock_global_manager.sandboxes = {}  # Missing session
+    mock_global_manager.sandboxes = {}
 
     response = mock_api_client.post("/sandboxes", json={"session_id": "sess"})
 
@@ -79,14 +78,12 @@ def test_inject_file_success(mock_api_client, mock_global_manager):
 
 def test_inject_file_errors(mock_api_client, mock_global_manager):
     """Test error cases for file injection."""
-    # 404 Case
     mock_global_manager.copy_file_to_container.side_effect = RuntimeError("Not active")
     resp = mock_api_client.post(
         "/sandboxes/sess1/files", json={"src_path": "/src", "dest_path": "/dest"}
     )
     assert resp.status_code == 404
 
-    # 400 Case
     mock_global_manager.copy_file_to_container.side_effect = FileNotFoundError(
         "Missing"
     )
@@ -101,7 +98,6 @@ def test_execute_tool_success(
     mock_post, mock_api_client, mock_global_manager, mock_container
 ):
     """Test successful tool execution forwarding."""
-    # Setup sandbox
     mock_global_manager.get_or_create_container = AsyncMock()
     mock_global_manager.sandboxes = {
         "sess1": {
@@ -113,7 +109,6 @@ def test_execute_tool_success(
     }
     mock_global_manager._get_ip.return_value = "1.2.3.4"
 
-    # Mock Tool Server Response
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {"result": "ok"}
@@ -138,7 +133,6 @@ def test_execute_tool_connect_error(
     mock_post, mock_api_client, mock_global_manager, mock_container
 ):
     """Test tool execution connection failure fallback."""
-    # Setup sandbox
     mock_global_manager.get_or_create_container = AsyncMock()
     mock_global_manager.sandboxes = {
         "sess1": {
@@ -148,10 +142,7 @@ def test_execute_tool_connect_error(
         }
     }
 
-    # Simulate connection error
     mock_post.side_effect = httpx.RequestError("Connection refused")
-
-    # Mock container logs retrieval
     mock_container.logs.return_value = b"Last logs..."
 
     response = mock_api_client.post(

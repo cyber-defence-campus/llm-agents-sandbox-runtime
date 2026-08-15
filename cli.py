@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from rich.console import Console
 from rich.table import Table
@@ -14,7 +14,6 @@ from rich.json import JSON
 
 from sandbox_runtime.client import SandboxClient
 
-# Configuration
 BASE_URL = os.getenv("SANDBOX_RUNTIME_URL", "http://localhost:8000")
 console = Console()
 client = SandboxClient(BASE_URL)

@@ -4,13 +4,11 @@ from sandbox_runtime import SandboxClient
 
 
 async def main():
-    # Initialize client (defaults to http://localhost:8000)
     client = SandboxClient()
 
     session_id = f"example-{uuid.uuid4().hex[:8]}"
     print(f"--- Using SandboxClient for {session_id} ---")
 
-    # 1. Ensure/Create Sandbox
     print("Creating sandbox...")
     try:
         info = await client.ensure_sandbox(session_id)
@@ -19,7 +17,6 @@ async def main():
         print(f"Error creating sandbox: {e}")
         return
 
-    # 2. Execute Tool
     print("Executing 'run_shell_command' tool...")
     result = await client.execute_tool(
         session_id=session_id,
@@ -29,7 +26,6 @@ async def main():
     )
     print(f"Result: {result}")
 
-    # 3. Destroy Sandbox
     print("Cleaning up...")
     await client.destroy_sandbox(session_id)
     print("Done.")

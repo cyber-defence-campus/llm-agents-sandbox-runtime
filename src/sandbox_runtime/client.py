@@ -25,7 +25,6 @@ class SandboxClient:
         return bool(self.base_url)
 
     async def ensure_sandbox(self, session_id: str) -> Dict[str, Any]:
-        """Ensures a sandbox container exists for the given session ID."""
         url = f"{self.base_url}/sandboxes"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -38,7 +37,6 @@ class SandboxClient:
             raise
 
     async def list_sandboxes(self) -> Dict[str, Any]:
-        """Lists active sandboxes managed by the runtime."""
         url = f"{self.base_url}/sandboxes"
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -52,9 +50,6 @@ class SandboxClient:
     async def inject_file(
         self, session_id: str, src_path: str, dest_path: str
     ) -> Dict[str, Any]:
-        """
-        Injects a file from the host into the sandbox container.
-        """
         url = f"{self.base_url}/sandboxes/{session_id}/files"
         payload = {"src_path": src_path, "dest_path": dest_path}
         try:
@@ -77,13 +72,9 @@ class SandboxClient:
         kwargs: Dict[str, Any],
         correlation_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Executes a tool within the target sandbox.
-        """
         if not correlation_id:
             correlation_id = f"corr-{uuid.uuid4().hex[:12]}"
 
-        # Note: API expects 'session_id' in payload
         payload = {
             "session_id": session_id,
             "agent_id": agent_id,
@@ -119,7 +110,6 @@ class SandboxClient:
             return {"error": f"Sandbox connection failed: {e}"}
 
     async def destroy_sandbox(self, session_id: str) -> Dict[str, Any]:
-        """Terminates the sandbox container."""
         url = f"{self.base_url}/sandboxes/{session_id}"
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
@@ -133,5 +123,4 @@ class SandboxClient:
             return {"error": str(e)}
 
 
-# Global instance
 sandbox_client = SandboxClient()

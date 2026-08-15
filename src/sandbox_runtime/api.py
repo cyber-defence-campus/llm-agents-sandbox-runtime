@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import uuid
-from typing import Any
 
 import httpx
 from docker.errors import DockerException, NotFound
@@ -13,12 +12,10 @@ from .models import (
     SandboxInfo,
     SandboxListResponse,
     SandboxRequest,
-    SandboxRequest,
     ToolExecutionRequest,
     FileInjectionRequest,
 )
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sandbox_service")
 
@@ -103,11 +100,9 @@ async def inject_file(session_id: str, request: FileInjectionRequest):
         )
         return {"message": "File injected successfully."}
     except RuntimeError as e:
-        # Sandbox not active or similar runtime issues
         logger.error(f"Failed to inject file for session {session_id}: {e}")
         raise HTTPException(status_code=404, detail=str(e))
     except FileNotFoundError as e:
-        # Source file not found
         logger.error(f"Source file not found for session {session_id}: {e}")
         raise HTTPException(
             status_code=400, detail=f"Source file not found: {request.src_path}"
@@ -146,12 +141,11 @@ async def execute_tool_in_sandbox(request: ToolExecutionRequest):
     port = sandbox_info["tool_server_port"]
     token = sandbox_info["tool_server_token"]
     container = sandbox_info["container"]
-    # Ensure we have the latest IP
     try:
         await asyncio.get_running_loop().run_in_executor(None, container.reload)
         tool_server_host = sandbox_manager._get_ip(container)
     except Exception:
-        tool_server_host = container.name  # Fallback
+        tool_server_host = container.name
         if AGENT_NETWORK_MODE == "host":
             tool_server_host = "host.docker.internal"
 
