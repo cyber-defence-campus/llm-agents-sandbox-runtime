@@ -48,12 +48,7 @@ class SandboxManager:
     async def get_or_create_container(
         self, session_id: str, networks: Optional[list] = None
     ) -> Container:
-        """Retrieves an existing healthy container or creates a new one.
-
-        `networks` are joined in addition to AGENT_NETWORK_NAME/host mode,
-        idempotently -- a target network a job's sandbox must reach (e.g. an
-        external range it is assessing) rather than the platform's own net.
-        """
+        """Retrieves an existing healthy container or creates a new one, joining `networks` if given."""
         if not self.docker:
             raise RuntimeError("Docker unavailable")
 
