@@ -45,17 +45,25 @@ class SandboxManager:
             self._locks[session_id] = asyncio.Lock()
         return self._locks[session_id]
 
-    async def get_or_create_container(self, session_id: str) -> Container:
-        """Retrieves an existing healthy container or creates a new one."""
+    async def get_or_create_container(
+        self, session_id: str, networks: Optional[list] = None
+    ) -> Container:
+        """Retrieves an existing healthy container or creates a new one.
+
+        `networks` are joined in addition to AGENT_NETWORK_NAME/host mode,
+        idempotently -- a target network a job's sandbox must reach (e.g. an
+        external range it is assessing) rather than the platform's own net.
+        """
         if not self.docker:
             raise RuntimeError("Docker unavailable")
 
         async with self._get_lock(session_id):
             container = await self._find_existing(session_id)
-            if container:
-                return container
+            if not container:
+                container = await self._create_new(session_id)
 
-            return await self._create_new(session_id)
+            await self._ensure_networks(container, networks)
+            return container
 
     async def _find_existing(self, session_id: str) -> Optional[Container]:
         name = f"platform-{session_id}"
@@ -176,6 +184,31 @@ class SandboxManager:
                 except:
                     pass
                 raise RuntimeError(f"Sandbox creation failed: {e}")
+
+    async def _ensure_networks(
+        self, container: Container, networks: Optional[list]
+    ) -> None:
+        if not networks:
+            return
+
+        await asyncio.to_thread(container.reload)
+        attached = set(
+            (container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+        )
+
+        for name in networks:
+            if name in attached:
+                continue
+            try:
+                network = await asyncio.to_thread(self.docker.networks.get, name)
+                await asyncio.to_thread(network.connect, container)
+                logger.info(f"Connected {container.name} to network {name}")
+            except NotFound:
+                logger.error(
+                    f"Network {name} not found; {container.name} was not connected to it"
+                )
+            except APIError as e:
+                logger.warning(f"Failed to connect {container.name} to {name}: {e}")
 
     async def stop_remove_sandbox(self, session_id: str, cancel_task: bool = True):
         entry = self.sandboxes.pop(session_id, None)

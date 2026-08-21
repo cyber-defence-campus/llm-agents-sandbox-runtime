@@ -51,7 +51,9 @@ async def list_sandboxes():
 async def create_sandbox(request: SandboxRequest):
     session_id = request.session_id
     try:
-        container = await sandbox_manager.get_or_create_container(session_id)
+        container = await sandbox_manager.get_or_create_container(
+            session_id, networks=request.networks
+        )
         if session_id not in sandbox_manager.sandboxes:
             logger.critical(
                 f"CRITICAL: Sandbox state inconsistency for {session_id} after container creation/retrieval."

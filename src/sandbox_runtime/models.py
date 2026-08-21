@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 class SandboxRequest(BaseModel):
     session_id: str
+    networks: List[str] | None = None
 
 
 class SandboxInfo(BaseModel):
