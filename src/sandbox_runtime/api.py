@@ -52,7 +52,10 @@ async def create_sandbox(request: SandboxRequest):
     session_id = request.session_id
     try:
         container = await sandbox_manager.get_or_create_container(
-            session_id, networks=request.networks
+            session_id,
+            networks=request.networks,
+            restricted_cidr=request.restricted_cidr,
+            allowed_address=request.allowed_address,
         )
         if session_id not in sandbox_manager.sandboxes:
             logger.critical(

@@ -5,6 +5,12 @@ from pydantic import BaseModel
 class SandboxRequest(BaseModel):
     session_id: str
     networks: List[str] | None = None
+    # Optional per-run network boundary. The operator may reach the granted
+    # entry address for RCE and beacon installation, but not lateral hosts on
+    # the same Docker segment. The restriction is installed before the tool
+    # server starts and its network-admin capability is then dropped.
+    restricted_cidr: str | None = None
+    allowed_address: str | None = None
 
 
 class SandboxInfo(BaseModel):

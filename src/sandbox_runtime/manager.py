@@ -46,16 +46,28 @@ class SandboxManager:
         return self._locks[session_id]
 
     async def get_or_create_container(
-        self, session_id: str, networks: Optional[list] = None
+        self, session_id: str, networks: Optional[list] = None,
+        restricted_cidr: Optional[str] = None,
+        allowed_address: Optional[str] = None,
     ) -> Container:
-        """Retrieves an existing healthy container or creates a new one, joining `networks` if given."""
+        """Retrieve or create a sandbox, applying its optional network boundary."""
         if not self.docker:
             raise RuntimeError("Docker unavailable")
+        if bool(restricted_cidr) != bool(allowed_address):
+            raise ValueError(
+                "restricted_cidr and allowed_address must be supplied together"
+            )
 
         async with self._get_lock(session_id):
             container = await self._find_existing(session_id)
             if not container:
-                container = await self._create_new(session_id)
+                if networks or restricted_cidr or allowed_address:
+                    container = await self._create_new(
+                        session_id, networks=networks,
+                        restricted_cidr=restricted_cidr,
+                        allowed_address=allowed_address)
+                else:
+                    container = await self._create_new(session_id)
 
             await self._ensure_networks(container, networks)
             return container
@@ -91,7 +103,11 @@ class SandboxManager:
             logger.error(f"Error checking existing container {name}: {e}")
             return None
 
-    async def _create_new(self, session_id: str) -> Container:
+    async def _create_new(
+        self, session_id: str, networks: Optional[list] = None,
+        restricted_cidr: Optional[str] = None,
+        allowed_address: Optional[str] = None,
+    ) -> Container:
         name = f"platform-{session_id}"
         logger.info(f"Creating new sandbox: {name}")
 
@@ -116,6 +132,12 @@ class SandboxManager:
             "REDIS_PORT": os.getenv("REDIS_PORT", "6379"),
             "PLATFORM_SESSION_ID": session_id,
         }
+        if restricted_cidr and allowed_address:
+            env.update({
+                "AGENT_RESTRICTED_CIDR": restricted_cidr,
+                "AGENT_ALLOWED_ADDRESS": allowed_address,
+                "AGENT_DROP_NET_ADMIN": "1",
+            })
 
         labels = {"platform-session-id": session_id}
         volumes = self._parse_volumes()
@@ -138,7 +160,21 @@ class SandboxManager:
 
         for attempt in range(3):
             try:
-                container = await asyncio.to_thread(self.docker.containers.run, **kwargs)
+                # Attach the lab segment before the entrypoint runs. The
+                # entrypoint installs the allow-one-host route while it still
+                # has NET_ADMIN, then drops that capability before starting
+                # the tool server and its persistent terminal shell.
+                if networks and AGENT_NETWORK_MODE != "host":
+                    container = await asyncio.to_thread(
+                        self.docker.containers.create, **kwargs)
+                    for network_name in networks:
+                        network = await asyncio.to_thread(
+                            self.docker.networks.get, network_name)
+                        await asyncio.to_thread(network.connect, container)
+                    await asyncio.to_thread(container.start)
+                else:
+                    container = await asyncio.to_thread(
+                        self.docker.containers.run, **kwargs)
 
                 await asyncio.to_thread(container.reload)
                 ip = self._get_ip(container)

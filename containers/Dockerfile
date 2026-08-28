@@ -15,7 +15,9 @@ RUN apt-get update && \
     curl \
     git \
     build-essential \
+    iproute2 \
     tmux \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
