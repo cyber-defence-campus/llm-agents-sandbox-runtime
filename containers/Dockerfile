@@ -13,6 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
+    openssh-client \
+    sshpass \
     git \
     build-essential \
     iproute2 \
