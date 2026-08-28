@@ -99,6 +99,27 @@ async def test_create_new_success(sandbox_manager, mock_container):
 
 
 @pytest.mark.asyncio
+async def test_create_new_egress_boundary_is_passed_to_container(
+    sandbox_manager, mock_container
+):
+    """A scoped operator receives the lab CIDR and loses NET_ADMIN."""
+    sandbox_manager.docker.containers.get.side_effect = NotFound("Not found")
+    sandbox_manager.docker.containers.run.return_value = mock_container
+    sandbox_manager._check_health = AsyncMock(return_value=True)
+    sandbox_manager._wait_for_health = AsyncMock()
+
+    await sandbox_manager._create_new(
+        "scoped_session", egress_cidr="172.28.0.0/16"
+    )
+
+    environment = sandbox_manager.docker.containers.run.call_args.kwargs[
+        "environment"
+    ]
+    assert environment["AGENT_EGRESS_CIDR"] == "172.28.0.0/16"
+    assert environment["AGENT_DROP_NET_ADMIN"] == "1"
+
+
+@pytest.mark.asyncio
 async def test_create_new_failure(sandbox_manager):
     """Test failure during creation cleans up."""
     sandbox_manager.docker.containers.get.side_effect = NotFound("Not found")

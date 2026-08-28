@@ -12,6 +12,14 @@ echo "✅ Shared container ready for multi-agent use"
 
 cd /workspace
 
+as_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    else
+        sudo -n "$@"
+    fi
+}
+
 if [ -n "${AGENT_RESTRICTED_CIDR:-}" ] && [ -n "${AGENT_ALLOWED_ADDRESS:-}" ]; then
     # The operator is on the lab wire for the initial RCE, but it must not be
     # able to use that shell as a free lateral-movement carrier. Replace the
@@ -19,14 +27,6 @@ if [ -n "${AGENT_RESTRICTED_CIDR:-}" ] && [ -n "${AGENT_ALLOWED_ADDRESS:-}" ]; t
     # the granted entry address. This happens before the tool server starts;
     # its process tree receives a bounding set without NET_ADMIN below, so a
     # terminal command cannot remove the boundary.
-    as_root() {
-        if [ "$(id -u)" -eq 0 ]; then
-            "$@"
-        else
-            sudo -n "$@"
-        fi
-    }
-
     route_dev="$(as_root ip -o -4 route show "${AGENT_RESTRICTED_CIDR}" \
         | awk 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
     if [ -z "$route_dev" ]; then
@@ -37,6 +37,20 @@ if [ -n "${AGENT_RESTRICTED_CIDR:-}" ] && [ -n "${AGENT_ALLOWED_ADDRESS:-}" ]; t
     as_root ip route add blackhole "${AGENT_RESTRICTED_CIDR}"
     as_root ip route add "${AGENT_ALLOWED_ADDRESS}/32" dev "$route_dev" scope link
     echo "Operator egress restricted to ${AGENT_ALLOWED_ADDRESS} on ${AGENT_RESTRICTED_CIDR}"
+fi
+
+if [ -n "${AGENT_EGRESS_CIDR:-}" ]; then
+    # Keep the operator's platform interface for the incoming tool-server
+    # connection, but deny new outbound connections on it. Established and
+    # related traffic must remain allowed so the control request can receive
+    # its response. The lab CIDR is the only new destination permitted; the
+    # tool server loses NET_ADMIN below, so a shell cannot remove these rules.
+    as_root iptables -F OUTPUT
+    as_root iptables -A OUTPUT -o lo -j ACCEPT
+    as_root iptables -A OUTPUT -d "${AGENT_EGRESS_CIDR}" -j ACCEPT
+    as_root iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    as_root iptables -A OUTPUT -j REJECT
+    echo "Operator new egress restricted to ${AGENT_EGRESS_CIDR}"
 fi
 
 echo "DEBUG: TOOL_SERVER_PORT=${TOOL_SERVER_PORT:-<unset>}"

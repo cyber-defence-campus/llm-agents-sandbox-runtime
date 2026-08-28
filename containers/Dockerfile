@@ -18,6 +18,7 @@ RUN apt-get update && \
     git \
     build-essential \
     iproute2 \
+    iptables \
     tmux \
     util-linux \
     && rm -rf /var/lib/apt/lists/*

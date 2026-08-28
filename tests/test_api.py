@@ -41,6 +41,39 @@ def test_create_sandbox_success(mock_api_client, mock_global_manager, mock_conta
     assert response.json()["session_id"] == "new_sess"
 
 
+def test_create_sandbox_forwards_egress_boundary(
+    mock_api_client, mock_global_manager, mock_container
+):
+    """The API must not drop the per-run lab boundary before Docker sees it."""
+    mock_global_manager.get_or_create_container = AsyncMock(return_value=mock_container)
+    mock_global_manager._get_ip.return_value = "1.2.3.4"
+    mock_global_manager.sandboxes = {
+        "scoped": {
+            "tool_server_port": 1234,
+            "tool_server_token": "token",
+            "container": mock_container,
+        }
+    }
+
+    response = mock_api_client.post(
+        "/sandboxes",
+        json={
+            "session_id": "scoped",
+            "networks": ["lab_net"],
+            "egress_cidr": "172.28.0.0/16",
+        },
+    )
+
+    assert response.status_code == 200
+    mock_global_manager.get_or_create_container.assert_awaited_once_with(
+        "scoped",
+        networks=["lab_net"],
+        egress_cidr="172.28.0.0/16",
+        restricted_cidr=None,
+        allowed_address=None,
+    )
+
+
 def test_create_sandbox_inconsistency_error(mock_api_client, mock_global_manager):
     """Test error when state is inconsistent after creation."""
     mock_global_manager.get_or_create_container = AsyncMock()

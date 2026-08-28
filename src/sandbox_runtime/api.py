@@ -54,6 +54,7 @@ async def create_sandbox(request: SandboxRequest):
         container = await sandbox_manager.get_or_create_container(
             session_id,
             networks=request.networks,
+            egress_cidr=request.egress_cidr,
             restricted_cidr=request.restricted_cidr,
             allowed_address=request.allowed_address,
         )

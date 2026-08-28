@@ -5,6 +5,9 @@ from pydantic import BaseModel
 class SandboxRequest(BaseModel):
     session_id: str
     networks: List[str] | None = None
+    # Allow the operator to move within the declared lab CIDR while denying
+    # egress over the platform network used to control the sandbox.
+    egress_cidr: str | None = None
     # Optional per-run network boundary. The operator may reach the granted
     # entry address for RCE and beacon installation, but not lateral hosts on
     # the same Docker segment. The restriction is installed before the tool

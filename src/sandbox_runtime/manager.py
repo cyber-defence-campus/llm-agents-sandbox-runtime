@@ -47,6 +47,7 @@ class SandboxManager:
 
     async def get_or_create_container(
         self, session_id: str, networks: Optional[list] = None,
+        egress_cidr: Optional[str] = None,
         restricted_cidr: Optional[str] = None,
         allowed_address: Optional[str] = None,
     ) -> Container:
@@ -61,9 +62,10 @@ class SandboxManager:
         async with self._get_lock(session_id):
             container = await self._find_existing(session_id)
             if not container:
-                if networks or restricted_cidr or allowed_address:
+                if networks or egress_cidr or restricted_cidr or allowed_address:
                     container = await self._create_new(
                         session_id, networks=networks,
+                        egress_cidr=egress_cidr,
                         restricted_cidr=restricted_cidr,
                         allowed_address=allowed_address)
                 else:
@@ -105,6 +107,7 @@ class SandboxManager:
 
     async def _create_new(
         self, session_id: str, networks: Optional[list] = None,
+        egress_cidr: Optional[str] = None,
         restricted_cidr: Optional[str] = None,
         allowed_address: Optional[str] = None,
     ) -> Container:
@@ -136,6 +139,11 @@ class SandboxManager:
             env.update({
                 "AGENT_RESTRICTED_CIDR": restricted_cidr,
                 "AGENT_ALLOWED_ADDRESS": allowed_address,
+                "AGENT_DROP_NET_ADMIN": "1",
+            })
+        if egress_cidr:
+            env.update({
+                "AGENT_EGRESS_CIDR": egress_cidr,
                 "AGENT_DROP_NET_ADMIN": "1",
             })
 
