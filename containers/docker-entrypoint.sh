@@ -40,17 +40,27 @@ if [ -n "${AGENT_RESTRICTED_CIDR:-}" ] && [ -n "${AGENT_ALLOWED_ADDRESS:-}" ]; t
 fi
 
 if [ -n "${AGENT_EGRESS_CIDR:-}" ]; then
-    # Keep the operator's platform interface for the incoming tool-server
-    # connection, but deny new outbound connections on it. Established and
-    # related traffic must remain allowed so the control request can receive
-    # its response. The lab CIDR is the only new destination permitted; the
-    # tool server loses NET_ADMIN below, so a shell cannot remove these rules.
-    as_root iptables -F OUTPUT
-    as_root iptables -A OUTPUT -o lo -j ACCEPT
-    as_root iptables -A OUTPUT -d "${AGENT_EGRESS_CIDR}" -j ACCEPT
-    as_root iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    as_root iptables -A OUTPUT -j REJECT
-    echo "Operator new egress restricted to ${AGENT_EGRESS_CIDR}"
+    # Keep the lab's connected routes and the incoming tool-server channel,
+    # but make every other destination unroutable. The control connection is
+    # initiated by sandbox-service, so its single platform address is the
+    # only platform route restored after the platform CIDR and default route
+    # become blackholes. This needs only iproute2, which is already part of
+    # the pentest image; NET_ADMIN is removed from the tool server below.
+    platform_dev="$(as_root ip route show default \
+        | awk 'NR == 1 { print $5; exit }')"
+    platform_cidr="$(as_root ip -o -4 route show dev "$platform_dev" \
+        proto kernel scope link | awk 'NR == 1 { print $1; exit }')"
+    control_host="${AGENT_CONTROL_HOST:-sandbox-service}"
+    control_address="$(getent ahostsv4 "$control_host" 2>/dev/null \
+        | awk 'NR == 1 { print $1; exit }')"
+    if [ -z "$platform_dev" ] || [ -z "$platform_cidr" ] || [ -z "$control_address" ]; then
+        echo "ERROR: could not establish scoped operator routes" >&2
+        exit 1
+    fi
+    as_root ip route replace blackhole default
+    as_root ip route replace blackhole "$platform_cidr"
+    as_root ip route replace "$control_address/32" dev "$platform_dev" scope link
+    echo "Operator new egress restricted to ${AGENT_EGRESS_CIDR}; control channel retained"
 fi
 
 echo "DEBUG: TOOL_SERVER_PORT=${TOOL_SERVER_PORT:-<unset>}"

@@ -54,6 +54,8 @@ class SandboxManager:
         """Retrieve or create a sandbox, applying its optional network boundary."""
         if not self.docker:
             raise RuntimeError("Docker unavailable")
+        if egress_cidr and AGENT_NETWORK_MODE == "host":
+            raise ValueError("scoped sandbox egress is unsupported in host network mode")
         if bool(restricted_cidr) != bool(allowed_address):
             raise ValueError(
                 "restricted_cidr and allowed_address must be supplied together"
@@ -144,6 +146,9 @@ class SandboxManager:
         if egress_cidr:
             env.update({
                 "AGENT_EGRESS_CIDR": egress_cidr,
+                "AGENT_CONTROL_HOST": os.getenv(
+                    "AGENT_SANDBOX_SERVICE_HOST", "sandbox-service"
+                ),
                 "AGENT_DROP_NET_ADMIN": "1",
             })
 
