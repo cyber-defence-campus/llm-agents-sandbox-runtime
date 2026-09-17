@@ -21,6 +21,17 @@ from .config import (
 
 logger = logging.getLogger("sandbox_service.manager")
 
+# A tool server that is slow is not a dead sandbox. The health check used a
+# 2 s request and three consecutive misses tore the container down, which on
+# a busy host destroyed a live session's terminal mid-run (relay-wazuh,
+# seed 0, 2026-09-17). Give the socket five seconds, give a newly created or
+# restarted sandbox a grace window, and prefer a restart -- the filesystem
+# survives one -- before taking the container away.
+HEALTH_TIMEOUT = 5.0
+HEALTH_GRACE = 15.0
+HEALTH_STRIKES = 5
+HEALTH_REVIVALS = 2
+
 
 class SandboxManager:
     """
@@ -93,9 +104,13 @@ class SandboxManager:
                 return None
 
             ip, port, token = info
-            if await self._check_health(ip, port, token):
+            if await self._healthy_after(ip, port, token, HEALTH_GRACE):
                 self._register_sandbox(session_id, container, ip, port, token)
                 return container
+
+            if await self._restart_sandbox(session_id):
+                return await asyncio.to_thread(
+                    self.docker.containers.get, name)
 
             logger.warning(f"Container {name} unhealthy. Recreating.")
             await self._remove_container(container)
@@ -319,23 +334,36 @@ class SandboxManager:
 
     async def _health_loop(self, sid: str, ip: str, port: int, token: str):
         fails = 0
+        revivals = 0
         while True:
             await asyncio.sleep(10)
-            if not await self._check_health(ip, port, token):
-                fails += 1
-                if fails >= 3:
-                    logger.error(f"Sandbox {sid} died. Cleaning up.")
-                    await self.stop_remove_sandbox(sid)
-                    break
-            else:
+            if await self._check_health(ip, port, token):
                 fails = 0
+                continue
+            fails += 1
+            if fails < HEALTH_STRIKES:
+                continue
+            if revivals < HEALTH_REVIVALS:
+                revivals += 1
+                fails = 0
+                info = await self._restart_sandbox(sid)
+                if info:
+                    ip, port, token = info
+                    logger.warning(
+                        f"Sandbox {sid} restarted after {HEALTH_STRIKES} "
+                        f"failed checks.")
+                    continue
+            logger.error(f"Sandbox {sid} died. Cleaning up.")
+            await self.stop_remove_sandbox(sid)
+            break
 
-    async def _check_health(self, ip: str, port: int, token: str) -> bool:
+    async def _check_health(self, ip: str, port: int, token: str,
+                            timeout: float = HEALTH_TIMEOUT) -> bool:
         if not ip:
             return False
         url = f"http://{ip}:{port}/health"
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.get(
                     url, headers={"Authorization": f"Bearer {token}"}
                 )
@@ -344,6 +372,39 @@ class SandboxManager:
                 )
         except Exception:
             return False
+
+    async def _healthy_after(self, ip: str, port: int, token: str,
+                            grace: float) -> bool:
+        """Whether the tool server answers at any point inside a window."""
+        deadline = time.time() + grace
+        while True:
+            if await self._check_health(ip, port, token):
+                return True
+            if time.time() >= deadline:
+                return False
+            await asyncio.sleep(1)
+
+    async def _restart_sandbox(self, sid: str) -> Optional[Tuple[str, int, str]]:
+        """Restart a sandbox in place, keeping whatever it has on disk.
+
+        Returns the address it came back on when it is answering again.
+        """
+        name = f"platform-{sid}"
+        try:
+            container = await asyncio.to_thread(self.docker.containers.get, name)
+            await asyncio.to_thread(container.restart)
+            await asyncio.to_thread(container.reload)
+            info = self._extract_container_info(container)
+            if not info:
+                return None
+            ip, port, token = info
+            self._register_sandbox(sid, container, ip, port, token)
+            if await self._healthy_after(ip, port, token, HEALTH_GRACE):
+                return info
+            return None
+        except Exception as error:
+            logger.error(f"Could not restart sandbox {name}: {error}")
+            return None
 
     async def _wait_for_health(
         self, container: Container, ip: str, port: int, token: str, timeout: int = 60
