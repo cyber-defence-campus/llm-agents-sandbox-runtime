@@ -32,6 +32,14 @@ HEALTH_GRACE = 15.0
 HEALTH_STRIKES = 5
 HEALTH_REVIVALS = 2
 
+# A driver that is killed never reaches `release_sandbox`, and the container it
+# stood up stays running with nobody talking to it: six were still up twenty
+# hours after the interrupted runs of 2026-09-17, on the docker pool every lab
+# draws its addresses from. The health loop reaps any sandbox that has taken
+# no tool execution for this long -- longer than the longest campaign's own
+# timeout, so a live run cannot reach it.
+IDLE_REAP_SECONDS = float(os.getenv("SANDBOX_IDLE_REAP_SECONDS", "7200"))
+
 
 class SandboxManager:
     """
@@ -329,14 +337,49 @@ class SandboxManager:
             "ip_address": ip,
             "tool_server_port": port,
             "tool_server_token": token,
+            "last_used": time.time(),
             "health_task": asyncio.create_task(self._health_loop(sid, ip, port, token)),
         }
+
+    def note_used(self, session_id: str) -> None:
+        """Record that a sandbox just carried out a tool execution.
+
+        This is the only thing that keeps it off the idle list: the reaper
+        takes sandboxes a dead driver left behind, and a run that is working
+        touches this on every call.
+        """
+        entry = self._sandboxes.get(session_id)
+        if entry is not None:
+            entry["last_used"] = time.time()
+
+    async def reap_idle(self, now: float | None = None) -> list[str]:
+        """Remove sandboxes no execution has reached for `IDLE_REAP_SECONDS`.
+
+        Returns the session ids removed, so a caller can say what it took.
+        """
+        moment = time.time() if now is None else now
+        reaped: list[str] = []
+        for sid, entry in list(self._sandboxes.items()):
+            used = float(entry.get("last_used") or moment)
+            if moment - used < IDLE_REAP_SECONDS:
+                continue
+            logger.warning(
+                f"Sandbox {sid} took no execution in {moment - used:.0f}s; "
+                f"removing it as a leftover.")
+            await self.stop_remove_sandbox(sid)
+            reaped.append(sid)
+        return reaped
 
     async def _health_loop(self, sid: str, ip: str, port: int, token: str):
         fails = 0
         revivals = 0
         while True:
             await asyncio.sleep(10)
+            # A driver killed mid-run leaves its sandbox behind; nothing else
+            # in this process ever looks at it again.
+            await self.reap_idle()
+            if sid not in self._sandboxes:
+                break
             if await self._check_health(ip, port, token):
                 fails = 0
                 continue

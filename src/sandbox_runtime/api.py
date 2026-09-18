@@ -147,6 +147,7 @@ async def execute_tool_in_sandbox(request: ToolExecutionRequest):
     port = sandbox_info["tool_server_port"]
     token = sandbox_info["tool_server_token"]
     container = sandbox_info["container"]
+    sandbox_manager.note_used(session_id)
     try:
         await asyncio.get_running_loop().run_in_executor(None, container.reload)
         tool_server_host = sandbox_manager._get_ip(container)
