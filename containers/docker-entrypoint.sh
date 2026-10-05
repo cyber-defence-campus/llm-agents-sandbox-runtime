@@ -92,7 +92,8 @@ if [ -n "$TOOL_SERVER_PORT" ] && [ -n "$TOOL_SERVER_TOKEN" ]; then
     tool_pythonpath="${PYTHONPATH:-}:/llm-agents-orchestrator/src:/app/rt-automation-tactics"
     if [ "${AGENT_DROP_NET_ADMIN:-0}" = "1" ]; then
         if [ "$(id -u)" -eq 0 ]; then
-            exec setpriv --no-new-privs \
+            exec env "PYTHONPATH=${tool_pythonpath}" \
+                setpriv --no-new-privs \
                 --bounding-set=-net_admin \
                 --inh-caps=-net_admin \
                 --ambient-caps=-net_admin \
@@ -117,7 +118,12 @@ if [ -n "$TOOL_SERVER_PORT" ] && [ -n "$TOOL_SERVER_TOKEN" ]; then
                 --port="${TOOL_SERVER_PORT}"
         fi
     else
-        exec python -m agent_framework.runtime.tool_server \
+        # No scoped egress boundary was configured, so this branch skipped the
+        # tool_pythonpath setup above. The operator image sets PYTHONPATH=/app,
+        # which does not contain the orchestrator source; without an explicit
+        # path the tool server dies on `import agent_framework` before it can
+        # run a single command.
+        exec env "PYTHONPATH=${tool_pythonpath}" python -m agent_framework.runtime.tool_server \
             --token="${TOOL_SERVER_TOKEN}" \
             --host="0.0.0.0" \
             --port="${TOOL_SERVER_PORT}"
