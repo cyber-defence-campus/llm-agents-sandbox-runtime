@@ -191,3 +191,12 @@ def test_execute_tool_connect_error(
     assert response.status_code == 503
     assert "Connection refused" in response.json()["detail"]
     assert "Last logs" in response.json()["detail"]
+
+def test_only_requested_attached_addresses_are_returned(mock_api_client,mock_global_manager,mock_container):
+    mock_container.attrs['NetworkSettings']['Networks']['lab-net']={'IPAddress':'172.28.0.17'}
+    mock_global_manager.get_or_create_container=AsyncMock(return_value=mock_container)
+    mock_global_manager._get_ip.return_value='172.17.0.2'
+    mock_global_manager.sandboxes={'scoped':{'tool_server_port':1234,'tool_server_token':'token','container':mock_container}}
+    response=mock_api_client.post('/sandboxes',json={'session_id':'scoped','networks':['lab-net'],'egress_cidr':'172.28.0.0/24'})
+    assert response.status_code==200
+    assert response.json()['network_addresses']=={'lab-net':'172.28.0.17'}

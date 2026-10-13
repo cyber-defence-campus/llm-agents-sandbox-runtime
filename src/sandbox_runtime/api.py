@@ -66,6 +66,7 @@ async def create_sandbox(request: SandboxRequest):
                 status_code=500, detail="Sandbox state inconsistency after creation."
             )
 
+        await asyncio.to_thread(container.reload)
         sandbox_data = sandbox_manager.sandboxes[session_id]
         ip_address = sandbox_manager._get_ip(container)
         api_url = f"http://{ip_address}:{sandbox_data['tool_server_port']}"
@@ -76,6 +77,9 @@ async def create_sandbox(request: SandboxRequest):
             tool_server_port=sandbox_data["tool_server_port"],
             tool_server_token=sandbox_data["tool_server_token"],
             api_url=api_url,
+            network_addresses={name: data.get("IPAddress", "")
+                for name, data in container.attrs.get("NetworkSettings", {}).get("Networks", {}).items()
+                if name in (request.networks or [])},
         )
     except HTTPException as e:
         logger.error(

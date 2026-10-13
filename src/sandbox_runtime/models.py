@@ -1,5 +1,5 @@
 from typing import Any, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SandboxRequest(BaseModel):
@@ -22,6 +22,7 @@ class SandboxInfo(BaseModel):
     tool_server_port: int
     tool_server_token: str
     api_url: str
+    network_addresses: dict[str, str] = Field(default_factory=dict)
 
 
 class SandboxListResponse(BaseModel):
