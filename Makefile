@@ -1,4 +1,4 @@
-.PHONY: help run stop logs clean
+.PHONY: help run stop logs test clean
 
 help:
 	@echo "Sandbox Runtime - Standalone Development Commands"
@@ -7,6 +7,9 @@ help:
 	@echo "  run    - Build and start sandbox service"
 	@echo "  stop   - Stop sandbox service"
 	@echo "  logs   - Follow logs"
+	@echo ""
+	@echo "Testing:"
+	@echo "  test   - Run the test suite"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean  - Remove stopped containers and cache"
@@ -24,6 +27,9 @@ stop:
 
 logs:
 	docker compose logs -f --tail=100
+
+test:
+	poetry run pytest tests/
 
 clean:
 	@echo "🧹 Cleaning up..."
