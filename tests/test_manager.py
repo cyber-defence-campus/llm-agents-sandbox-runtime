@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch, mock_open
 from docker.errors import NotFound, DockerException
-from sandbox_runtime.manager import SandboxManager
 
 
 @pytest.mark.asyncio

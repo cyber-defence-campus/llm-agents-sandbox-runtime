@@ -112,3 +112,24 @@ def test_api_declares_configuration_not_connectivity(mock_api_client,mock_global
     assert result.json()['network_boundary']['egress_cidr']=='172.28.0.0/16'
     assert result.json()['network_addresses']=={'lab-net':'172.28.3.5'}
     assert 'reachable' not in result.json()
+
+
+def test_network_inspection_cannot_create_or_restart(mock_api_client,mock_global_manager,mock_container):
+    scoped(mock_container)
+    mock_global_manager.docker.containers.get.return_value=mock_container
+    result=mock_api_client.get('/sandboxes/test_session/network')
+    assert result.status_code==200
+    assert result.json()['provenance']=='container_configuration'
+    assert result.json()['network_boundary']['allowed_address']=='172.28.3.10'
+    assert 'token' not in str(result.json())
+    mock_global_manager.get_or_create_container.assert_not_called()
+    mock_container.start.assert_not_called();mock_container.restart.assert_not_called()
+    mock_container.exec_run.assert_not_called()
+
+
+def test_absent_network_inspection_is404_without_replacement(mock_api_client,mock_global_manager):
+    from docker.errors import NotFound
+    mock_global_manager.docker.containers.get.side_effect=NotFound('missing')
+    result=mock_api_client.get('/sandboxes/missing/network')
+    assert result.status_code==404
+    mock_global_manager.get_or_create_container.assert_not_called()

@@ -96,6 +96,23 @@ async def create_sandbox(request: SandboxRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/sandboxes/{session_id}/network")
+async def describe_sandbox_network(session_id: str):
+    """Read existing configuration without creating, restarting or probing."""
+    try:
+        container = await asyncio.to_thread(sandbox_manager.docker.containers.get, f"platform-{session_id}")
+        await asyncio.to_thread(container.reload)
+    except NotFound as error:
+        raise HTTPException(404, "No existing sandbox for this operation.") from error
+    except DockerException as error:
+        raise HTTPException(503, "Sandbox configuration is unavailable.") from error
+    return {"session_id": session_id, "state": container.status,
+            "network_addresses": {name: data.get("IPAddress", "") for name, data in
+                container.attrs.get("NetworkSettings", {}).get("Networks", {}).items()},
+            "network_boundary": network_boundary(container),
+            "provenance": "container_configuration"}
+
+
 @app.delete("/sandboxes/{session_id}", status_code=status.HTTP_202_ACCEPTED)
 async def destroy_sandbox(session_id: str):
     logger.info(f"Received request to destroy sandbox for session_id: {session_id}")

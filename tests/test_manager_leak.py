@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 from sandbox_runtime.manager import SandboxManager
 
 @pytest.mark.asyncio

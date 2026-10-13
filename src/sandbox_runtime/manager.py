@@ -173,9 +173,9 @@ class SandboxManager:
                 return await asyncio.to_thread(
                     self.docker.containers.get, name)
 
-            logger.warning(f"Container {name} unhealthy. Recreating.")
             if preserve_on_failure:
                 raise SandboxBoundaryConflict("scoped sandbox is unhealthy; retained without replacement")
+            logger.warning(f"Container {name} unhealthy. Recreating.")
             await self._remove_container(container)
             return None
 
