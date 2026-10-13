@@ -4,6 +4,7 @@ import secrets
 import socket
 import time
 import os
+import ipaddress
 import tarfile
 from typing import Any, Dict, Optional, Tuple
 
@@ -39,6 +40,19 @@ HEALTH_REVIVALS = 2
 # no tool execution for this long -- longer than the longest campaign's own
 # timeout, so a live run cannot reach it.
 IDLE_REAP_SECONDS = float(os.getenv("SANDBOX_IDLE_REAP_SECONDS", "7200"))
+
+
+class SandboxBoundaryConflict(RuntimeError):
+    """An existing machine cannot satisfy a new network boundary safely."""
+
+
+def network_boundary(container: Container) -> dict[str, str]:
+    env = dict(item.split("=", 1) for item in container.attrs.get("Config", {}).get("Env", []) if "=" in item)
+    return {key: env.get(variable, "") for key, variable in (
+        ("egress_cidr", "AGENT_EGRESS_CIDR"),
+        ("restricted_cidr", "AGENT_RESTRICTED_CIDR"),
+        ("allowed_address", "AGENT_ALLOWED_ADDRESS"),
+        ("drop_net_admin", "AGENT_DROP_NET_ADMIN"))}
 
 
 class SandboxManager:
@@ -79,9 +93,46 @@ class SandboxManager:
             raise ValueError(
                 "restricted_cidr and allowed_address must be supplied together"
             )
+        requested = {"egress_cidr": egress_cidr, "restricted_cidr": restricted_cidr,
+                     "allowed_address": allowed_address}
+        for key in ("egress_cidr", "restricted_cidr"):
+            if requested[key]:
+                subnet = ipaddress.ip_network(requested[key], strict=False)
+                if subnet.version != 4:
+                    raise ValueError("sandbox network boundaries currently require IPv4")
+                requested[key] = str(subnet)
+        if allowed_address:
+            address = ipaddress.ip_address(allowed_address)
+            if address not in ipaddress.ip_network(requested["restricted_cidr"]):
+                raise ValueError("allowed_address is outside restricted_cidr")
+            requested["allowed_address"] = str(address)
+        egress_cidr, restricted_cidr, allowed_address = (requested[key] for key in
+            ("egress_cidr", "restricted_cidr", "allowed_address"))
 
         async with self._get_lock(session_id):
-            container = await self._find_existing(session_id)
+            # Inspect before a health lookup can restart/remove the machine.
+            try:
+                previous = await asyncio.to_thread(self.docker.containers.get, f"platform-{session_id}")
+                await asyncio.to_thread(previous.reload)
+            except NotFound:
+                previous = None
+            scoped = False
+            if previous is not None:
+                current = network_boundary(previous)
+                scoped = bool(current["egress_cidr"] or current["restricted_cidr"])
+                for key, value in requested.items():
+                    if value and current[key] != value:
+                        raise SandboxBoundaryConflict(f"existing sandbox has a different {key}; create a new operation with access configured before execution")
+                if scoped:
+                    if current["drop_net_admin"] != "1":
+                        raise SandboxBoundaryConflict("existing scoped sandbox lacks its configured privilege boundary")
+                    attached = previous.attrs.get("NetworkSettings", {}).get("Networks", {})
+                    if any(name not in attached for name in networks or []):
+                        raise SandboxBoundaryConflict("cannot attach another network to a running scoped sandbox")
+            container = (await self._find_existing(session_id, preserve_on_failure=True)
+                         if scoped else await self._find_existing(session_id))
+            if scoped and (container is None or container.id != previous.id):
+                raise SandboxBoundaryConflict("scoped sandbox is unavailable; implicit replacement is refused")
             if not container:
                 if networks or egress_cidr or restricted_cidr or allowed_address:
                     container = await self._create_new(
@@ -95,7 +146,7 @@ class SandboxManager:
             await self._ensure_networks(container, networks)
             return container
 
-    async def _find_existing(self, session_id: str) -> Optional[Container]:
+    async def _find_existing(self, session_id: str, *, preserve_on_failure: bool = False) -> Optional[Container]:
         name = f"platform-{session_id}"
         try:
             container = await asyncio.to_thread(self.docker.containers.get, name)
@@ -107,6 +158,8 @@ class SandboxManager:
             await asyncio.to_thread(container.reload)
             info = self._extract_container_info(container)
             if not info:
+                if preserve_on_failure:
+                    raise SandboxBoundaryConflict("scoped sandbox configuration is unavailable; retained without replacement")
                 logger.warning(f"Container {name} has missing config. Recreating.")
                 await self._remove_container(container)
                 return None
@@ -121,9 +174,13 @@ class SandboxManager:
                     self.docker.containers.get, name)
 
             logger.warning(f"Container {name} unhealthy. Recreating.")
+            if preserve_on_failure:
+                raise SandboxBoundaryConflict("scoped sandbox is unhealthy; retained without replacement")
             await self._remove_container(container)
             return None
 
+        except SandboxBoundaryConflict:
+            raise
         except NotFound:
             return None
         except Exception as e:

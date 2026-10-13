@@ -23,6 +23,7 @@ class SandboxInfo(BaseModel):
     tool_server_token: str
     api_url: str
     network_addresses: dict[str, str] = Field(default_factory=dict)
+    network_boundary: dict[str, str] = Field(default_factory=dict)
 
 
 class SandboxListResponse(BaseModel):

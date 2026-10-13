@@ -7,7 +7,7 @@ from docker.errors import DockerException, NotFound
 from fastapi import FastAPI, HTTPException, status
 
 from .config import AGENT_NETWORK_MODE
-from .manager import sandbox_manager
+from .manager import sandbox_manager, SandboxBoundaryConflict, network_boundary
 from .models import (
     SandboxInfo,
     SandboxListResponse,
@@ -80,7 +80,12 @@ async def create_sandbox(request: SandboxRequest):
             network_addresses={name: data.get("IPAddress", "")
                 for name, data in container.attrs.get("NetworkSettings", {}).get("Networks", {}).items()
                 if name in (request.networks or [])},
+            network_boundary=network_boundary(container),
         )
+    except SandboxBoundaryConflict as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except HTTPException as e:
         logger.error(
             f"HTTPException during sandbox creation/retrieval for {session_id}: {e.detail}"
